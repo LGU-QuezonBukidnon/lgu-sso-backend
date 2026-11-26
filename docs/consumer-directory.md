@@ -50,7 +50,17 @@ Results sort by last name, first name, then unique UUID. Pages are current reads
 }
 ```
 
-The example is synthetic. Office and position fields may be null. Position title is the current designation. Historical inactive office/position assignments are still displayed until changed in SSO. No email, username, private profile, employee database ID, grants to other applications, total employee count, or pagination URLs are returned. An empty or out-of-range page returns `data: []` and `has_more: false`.
+The example is synthetic. Office and position fields may be null. Position title is the current designation. Historical inactive office/position assignments are still displayed until changed in SSO. No email, username, private profile, employee database ID, grants to other applications, global employee count, or pagination URLs are returned. An empty or out-of-range page returns `data: []` and `has_more: false`.
+
+### Optional registered total
+
+On an unfiltered first page, append `include_registered_total=1` to receive integer `meta.registered_total`. The count includes distinct active, non-deleted employees currently assigned to the authenticated application with any of the requested `roles`, **including employees who must change their password**. It is an application registration count, not permission to sign in or access a person.
+
+Example: `/api/v1/sso/directory?roles[]=standard&roles[]=administrator&roles[]=super_administrator&page=1&include_registered_total=1`.
+
+The individual `data` rows, lookup and avatar eligibility remain unchanged: password-change-required employees are still excluded. Consumers can use eligible directory UUIDs for online membership and this aggregate as their registered denominator. Do not infer eligibility for excluded employees from the total.
+
+The flag accepts `1`/`0` (or JSON booleans); malformed values return 422. The aggregate is omitted when the flag is absent/false, `page` is greater than 1, search is nonblank, or `office_id`/`position_id` is present. `roles` always scopes the count; `per_page` does not. Empty scopes return integer zero. Default response metadata is unchanged. The existing credential checks, shared rate limit and private/no-store policy also apply to this aggregate.
 
 ## Current recipient lookup
 

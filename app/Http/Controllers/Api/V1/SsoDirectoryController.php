@@ -22,6 +22,7 @@ class SsoDirectoryController extends Controller
             'position_id' => ['sometimes', 'required', 'integer', 'min:1'],
             'page' => ['sometimes', 'integer', 'between:1,10000'],
             'per_page' => ['sometimes', 'integer', 'between:1,50'],
+            'include_registered_total' => ['sometimes', 'boolean'],
         ]);
 
         $query = $this->employees($request, $input['roles']);
@@ -48,12 +49,23 @@ class SsoDirectoryController extends Controller
         $page = $query->orderBy('employees.last_name')->orderBy('employees.first_name')->orderBy('employees.uuid')
             ->simplePaginate((int) ($input['per_page'] ?? 20), ['employees.*'], 'page', (int) ($input['page'] ?? 1));
 
+        $registeredTotal = null;
+        if (($input['include_registered_total'] ?? false)
+            && $page->currentPage() === 1
+            && trim($input['search'] ?? '') === ''
+            && ! isset($input['office_id']) && ! isset($input['position_id'])) {
+            $registeredTotal = $request->attributes->get('application')->employees()
+                ->where('employees.is_active', true)->wherePivotIn('role', $input['roles'])
+                ->distinct()->count('employees.id');
+        }
+
         return response()->json([
             'data' => $page->getCollection()->map(fn (Employee $employee) => $this->display($employee))->values(),
             'meta' => [
                 'page' => $page->currentPage(),
                 'per_page' => $page->perPage(),
                 'has_more' => $page->hasMorePages(),
+                ...($registeredTotal !== null ? ['registered_total' => $registeredTotal] : []),
                 ...((isset($input['office_id']) || isset($input['position_id'])) ? ['filters_applied' => true] : []),
             ],
         ]);

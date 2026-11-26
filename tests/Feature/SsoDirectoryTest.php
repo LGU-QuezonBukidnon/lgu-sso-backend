@@ -264,3 +264,73 @@ it('returns stable office and position references without private employee detai
         ->assertJsonPath('data.office_id', null)->assertJsonPath('data.position_id', null)
         ->assertJsonPath('data.position_title', null);
 });
+
+it('counts active application registrations without exposing setup-required employees', function () {
+    $ready = ($this->person)();
+    $setup = ($this->person)('administrator', ['must_change_password' => true]);
+    ($this->person)('super_administrator');
+    ($this->person)('guest');
+    ($this->person)('unknown');
+    ($this->person)('standard', ['is_active' => false]);
+    ($this->person)('standard', ['must_change_password' => true])->delete();
+    $other = Application::factory()->create();
+    $other->employees()->attach($ready, ['role' => 'standard']);
+    $other->employees()->attach(Employee::factory()->create(), ['role' => 'standard']);
+    Employee::factory()->create();
+
+    $baseline = $this->getJson(($this->url)(), $this->headers)->assertOk();
+    $response = $this->getJson(($this->url)(['include_registered_total' => 1, 'application_id' => $other->id]), $this->headers)
+        ->assertOk()->assertJsonPath('meta.registered_total', 3)->assertJsonCount(2, 'data');
+    expect($response->json('data'))->toBe($baseline->json('data'));
+    expect($response->headers->get('Cache-Control'))->toContain('no-store', 'private');
+    foreach (['/'.$setup->uuid, '/'.$setup->uuid.'/avatar'] as $suffix) {
+        $this->getJson(($this->url)(['include_registered_total' => 1], $suffix), $this->headers)->assertNotFound();
+    }
+    $this->getJson(($this->url)(['include_registered_total' => 1, 'roles' => ['guest']]), $this->headers)
+        ->assertOk()->assertJsonPath('meta.registered_total', 1);
+    $this->application->employees()->detach($setup);
+    $this->getJson(($this->url)(['include_registered_total' => 1]), $this->headers)->assertJsonPath('meta.registered_total', 2);
+    $this->application->employees()->updateExistingPivot($ready->id, ['role' => 'guest']);
+    $this->getJson(($this->url)(['include_registered_total' => 1]), $this->headers)->assertJsonPath('meta.registered_total', 1);
+});
+
+it('returns an integer zero for an empty registration scope', function () {
+    $this->getJson(($this->url)(['include_registered_total' => 1, 'search' => '   ']), $this->headers)
+        ->assertOk()->assertJsonPath('meta.registered_total', 0)->assertJsonCount(0, 'data');
+});
+
+it('only adds the registration aggregate on an unfiltered first page when requested', function (array $query) {
+    ($this->person)();
+    $this->getJson(($this->url)($query), $this->headers)->assertOk()->assertJsonMissingPath('meta.registered_total');
+})->with([
+    [[]], [['include_registered_total' => 0]],
+    [['include_registered_total' => 1, 'page' => 2]],
+    [['include_registered_total' => 1, 'search' => 'name']],
+    [['include_registered_total' => 1, 'office_id' => 1]],
+    [['include_registered_total' => 1, 'position_id' => 1]],
+]);
+
+it('counts registrations independently of directory page size', function () {
+    ($this->person)();
+    ($this->person)();
+    ($this->person)('standard', ['must_change_password' => true]);
+    $this->getJson(($this->url)(['include_registered_total' => 1, 'page' => 1, 'per_page' => 1]), $this->headers)
+        ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('meta.has_more', true)->assertJsonPath('meta.registered_total', 3);
+});
+
+it('rejects malformed registration aggregate flags', function (mixed $flag) {
+    $response = $this->getJson(($this->url)(['include_registered_total' => $flag]), $this->headers)
+        ->assertUnprocessable()->assertJsonValidationErrors('include_registered_total');
+    expect($response->headers->get('Cache-Control'))->toContain('no-store');
+})->with(['yes', 'true', '2', [['1']]]);
+
+it('keeps credentials and rate limits on the registration aggregate', function () {
+    $url = ($this->url)(['include_registered_total' => 1]);
+    $this->getJson($url)->assertUnauthorized()->assertJsonMissingPath('meta.registered_total');
+    $this->getJson($url, [...$this->headers, 'X-Client-Secret' => 'wrong'])->assertUnauthorized();
+    $this->application->update(['is_active' => false]);
+    $this->getJson($url, $this->headers)->assertUnauthorized();
+    $this->application->update(['is_active' => true, 'rate_limit_per_minute' => 1]);
+    $this->getJson($url, $this->headers)->assertOk();
+    $this->getJson($url, $this->headers)->assertStatus(429)->assertHeader('Retry-After')->assertJsonMissingPath('meta.registered_total');
+});
