@@ -113,6 +113,8 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware([ValidateAppCredentials::class, PerAppRateLimit::class])->group(function () {
             Route::post('authorize-batch', \App\Http\Controllers\Api\V1\SsoBatchAuthorizationController::class);
+            Route::post('desktop-delegations/{id}/revoke', [SsoAuthorizationCodeController::class, 'revokeDesktop'])
+                ->whereUuid('id');
             Route::post('exchange', [SsoAuthorizationCodeController::class, 'exchange']);
             Route::post('validate', [SsoController::class, 'validate'])
                 ->middleware(AuditLogger::class);
