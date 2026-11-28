@@ -1,6 +1,11 @@
 <?php
 
 return [
+    // Each desktop registration has its own opt-in authority.
+    'production_desktop_client_id' => env('SSO_CONNECT_PRODUCTION_CLIENT_ID'),
+    'production_desktop_ttl_minutes' => env('SSO_CONNECT_PRODUCTION_GRANT_TTL_MINUTES'),
+    'developer_desktop_client_id' => env('SSO_CONNECT_DEVELOPER_CLIENT_ID'),
+    'developer_desktop_ttl_minutes' => env('SSO_CONNECT_DEVELOPER_GRANT_TTL_MINUTES'),
 
     // Optional application-counter store; login and registration keep their existing limiter.
     'app_rate_limit_store' => env('SSO_APP_RATE_LIMIT_STORE'),

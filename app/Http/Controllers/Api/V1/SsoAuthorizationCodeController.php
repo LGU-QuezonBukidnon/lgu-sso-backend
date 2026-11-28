@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Application;
 use App\Models\Employee;
 use App\Models\OAuthToken;
+use App\Support\ConnectDesktopGrants;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tymon\JWTAuth\Facades\JWTAuth;
@@ -54,10 +56,21 @@ class SsoAuthorizationCodeController extends Controller
         });
     }
 
+    public function revokeDesktop(Request $request, string $id): Response
+    {
+        $application = $request->attributes->get('application');
+        $edition = $application instanceof Application ? ConnectDesktopGrants::forApplication($application) : null;
+        abort_unless($edition, 403);
+        $edition->revoke($application, $id);
+
+        return response()->noContent()->header('Cache-Control', 'no-store');
+    }
+
     public function exchange(Request $request): JsonResponse
     {
         $input = $request->validate([
             'code' => ['required', 'string'],
+            'desktop_delegation' => ['sometimes', 'required', 'boolean:strict'],
             'redirect_uri' => ['required', 'string', 'url'],
         ]);
 
@@ -71,6 +84,11 @@ class SsoAuthorizationCodeController extends Controller
             if (! $currentApplication || ! hash_equals($application->client_secret, $currentApplication->client_secret)
                 || ! in_array($input['redirect_uri'], $currentApplication->redirect_uris ?? [], true)) {
                 return response()->json(['message' => 'Application credentials or redirect changed.'], 401);
+            }
+            $delegated = $input['desktop_delegation'] ?? false;
+            $edition = $delegated ? ConnectDesktopGrants::forApplication($currentApplication) : null;
+            if ($delegated && (! $edition || $input['redirect_uri'] !== $edition->callback())) {
+                return response()->json(['message' => 'Desktop delegation is unavailable.'], 403);
             }
             $query = DB::table('sso_authorization_codes')
                 ->where('code_hash', hash('sha256', $input['code']))
@@ -95,13 +113,18 @@ class SsoAuthorizationCodeController extends Controller
             }
 
             $token = JWTAuth::fromUser($employee);
-            OAuthToken::create([
+            $session = OAuthToken::create([
                 'employee_id' => $employee->id,
                 'application_id' => $application->id,
                 'access_token' => hash('sha256', $token),
             ]);
 
-            return response()->json(['access_token' => $token, 'token_type' => 'bearer', 'expires_in' => config('jwt.ttl') === null ? null : (int) config('jwt.ttl') * 60])->header('Cache-Control', 'no-store');
+            $result = ['access_token' => $token, 'token_type' => 'bearer', 'expires_in' => config('jwt.ttl') === null ? null : (int) config('jwt.ttl') * 60];
+            if ($edition) {
+                $result['desktop_delegation'] = $edition->issue($session, $currentApplication, $employee);
+            }
+
+            return response()->json($result)->header('Cache-Control', 'no-store');
         });
     }
 }

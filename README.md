@@ -49,6 +49,8 @@ The authorization-code exchange returns `expires_in` as seconds for a finite tok
 
 The September 29 migration revokes old sessions once to retire the shared-cookie contract. Users must sign in again. This is an intentional migration effect and cannot be reversed by restoring revoked credentials.
 
+Connect desktop sessions can use a scoped SSO grant. Each edition requires a separate authority installation. See [Connect desktop authorization](docs/developer-desktop-authority.md).
+
 ## Production Docker stack
 
 Production uses [docker-compose.prod.yml](../docker-compose.prod.yml), separately from the local stack and its volumes. It includes MySQL 8.4, PHP-FPM, Nginx, the portal, a TLS proxy, and a scheduled database and storage backup service. The application images use non-root users. MySQL uses a restricted `lgu_sso` account. The backend runs with `APP_ENV=production`, `APP_DEBUG=false`, and `SSO_AUTO_SEED=false`.
